@@ -16,6 +16,8 @@ use std::convert::TryInto;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Mutex;
 use windows::core::GUID;
+use windows::Win32::Foundation::UNICODE_STRING;
+use windows::core::PWSTR;
 
 /// Parser module errors
 #[derive(Debug)]
@@ -613,6 +615,32 @@ impl private::TryParse<SystemTime> for Parser<'_, '_> {
                 }
 
                 Ok(SystemTime::from_slice(prop_slice.buffer.try_into()?))
+            }
+            _ => Err(ParserError::InvalidType),
+        }
+    }
+}
+
+impl private::TryParse<UNICODE_STRING> for Parser<'_, '_> {
+    fn try_parse_impl(&self, name: &str) -> Result<UNICODE_STRING, ParserError> {
+        let prop_slice = self.find_property(name)?;
+
+        match prop_slice.property.info {
+            PropertyInfo::Value { in_type, .. } => {
+                if in_type != TdhInType::InTypeUnicodeString {
+                    return Err(ParserError::InvalidType);
+                }
+
+                if prop_slice.buffer.len() < 4 {
+                    return Err(ParserError::LengthMismatch);
+                }
+
+                // Directly create the UNICODE_STRING
+                Ok(UNICODE_STRING {
+                    Length: u16::from_ne_bytes(prop_slice.buffer[0..2].try_into()?),
+                    MaximumLength: u16::from_ne_bytes(prop_slice.buffer[2..4].try_into()?),
+                    Buffer: PWSTR(prop_slice.buffer[4..].as_ptr() as *mut u16),}
+                )
             }
             _ => Err(ParserError::InvalidType),
         }
